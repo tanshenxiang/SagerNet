@@ -10,6 +10,11 @@ on:
         type: boolean
         default: true
         required: true
+      pre_release:
+        description: "Publish PreRelease"
+        type: boolean
+        default: false
+        required: false
       text:
         description: "Release Description"
         required: false
@@ -19,7 +24,7 @@ on:
         default: false
         required: false
       binary_only:
-        description: "Skip building sources, distribute only binary package"
+        description: "Skip building sources, distribute only binary packages"
         type: boolean
         default: false
         required: false
@@ -44,25 +49,20 @@ on:
         default: true
         required: false
       build_ubuntu:
-        description: "Build linux x64 binaries"
+        description: "Build linux binaries"
         type: boolean
         default: true
         required: false
-      build_ubuntu_arm:
-        description: "Build linux ARM64 binaries"
+      publish_ppa:
+        description: "Publish to PPA"
         type: boolean
         default: true
         required: false
-      build_ubuntu_32:
-        description: "Build linux x86 binaries"
-        type: boolean
-        default: true
-        required: false
-      build_ubuntu_arm_32:
-        description: "Build linux ARM binaries"
-        type: boolean
-        default: true
-        required: false
+ #     build_xbps:
+  #      description: "Build void linux packages"
+   #     type: boolean
+    #    default: true
+     #   required: false
       publish_chocolatey:
         description: "Publish chocolatey packages"
         type: boolean
@@ -101,27 +101,10 @@ jobs:
     env:
       INPUT_VERSION: ${{ github.event.inputs.tag }}
     strategy:
-  #    max-parallel: 1
       matrix:
         include:
           - cross_os: public
             cross_arch: public
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: amd64
-            allow: ${{ github.event.inputs.build_ubuntu }}
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: arm64
-            allow: ${{ github.event.inputs.build_ubuntu_arm }}
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: 386
-            allow: ${{ github.event.inputs.build_ubuntu_32 }}
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: arm
-            allow: ${{ github.event.inputs.build_ubuntu_arm_32 }}
             go_version: "1.25.9"
           - cross_os: windows
             cross_arch: amd64
@@ -174,6 +157,7 @@ jobs:
             export SKIP_UPDATER=OFF
           fi
           GO_MOD_TIDY=ON GOOS=${{ matrix.cross_os }} GOARCH=${{ matrix.cross_arch }} ./script/build_go.sh
+
       - name: Build vendor
         if: matrix.cross_os == 'public'
         shell: bash
@@ -184,12 +168,17 @@ jobs:
         env:
           INPUT_VERSION: ${{ github.event.inputs.tag }}
           MESSAGE: ${{ github.event.inputs.text }}
-          GH_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           export MESSAGE="$(echo -e "${MESSAGE}")"
+          PRE=""
+          if [[ ${{ github.event.inputs.pre_release }} == 'true' ]]
+          then
+            PRE="--prerelease"
+          fi
           if ! gh release view "${INPUT_VERSION}" >/dev/null 2>&1
           then
-            gh release create "${INPUT_VERSION}" --title "${INPUT_VERSION}" --notes "${MESSAGE}"
+            gh release create "${INPUT_VERSION}" --title "${INPUT_VERSION}" --notes "${MESSAGE}" $PRE
           fi
           gh release upload "${INPUT_VERSION}" deployment/* --clobber
       - name: Tar files
@@ -201,6 +190,103 @@ jobs:
         with:
           name: nekobox-${{ github.sha }}-Common-${{ matrix.cross_os }}-${{ matrix.cross_arch }}
           path: artifacts.tgz
+  # build-xbps:
+  #   name: Build xbps packages
+  #   permissions:
+  #     contents: write
+  #     actions: read
+  #   needs:
+  #     - build-go
+  #
+  #   strategy:
+  #     # Allow all builds to complete even if one fails
+  #     fail-fast: false
+  #     max-parallel: 2
+  #     matrix:
+  #       include:
+  #         # Native builds (same arch for host and target)
+  #         - { runner: ubuntu-24.04-arm, target: aarch64, variant: musl, guest: arm64 }
+  #         - { runner: ubuntu-24.04, target: x86_64, variant: musl, guest: amd64 }
+  #         - { runner: ubuntu-24.04-arm, target: aarch64, variant: glibc, guest: arm64 }
+  #         - { runner: ubuntu-24.04, target: x86_64, variant: glibc, guest: amd64 }
+  #         - { runner: ubuntu-24.04-arm, target: armv7l, variant: musl, guest: 'arm/v7' }
+  #         - { runner: ubuntu-24.04, target: i686, variant: glibc, guest: "386" }
+  #         - { runner: ubuntu-24.04-arm, target: armv7l, variant: glibc, guest: 'arm/v7' }
+  #         - { runner: ubuntu-24.04-arm, target: armv6l, variant: musl, guest: 'arm/v6' }
+  #         - { runner: ubuntu-24.04-arm, target: armv6l, variant: glibc, guest: 'arm/v6' }
+  #   runs-on: ${{ matrix.runner }}
+  #   if: github.event.inputs.build_xbps == 'true' && github.event.inputs.source_only != 'true'
+  #   steps:
+  #    # Checkout this repository (nekobox-void)
+  #     - name: Checkout nekobox-void
+  #       uses: actions/checkout@main
+  #       with:
+  #         repository: qr243vbi/nekobox-void
+  #     - name: Download Artifacts
+  #       uses: actions/download-artifact@main
+  #       with:
+  #         path: download-artifact
+  #
+  #     - name: Cache Docker images.
+  #       uses: AllySummers/docker-cache@main
+  #       with:
+  #         key: VoidDockerCache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.variant }}-${{ matrix.guest }}-${{ hashFiles('Dockerfile') }}
+  #
+  #     - name: Cache Builds
+  #       id: cache-common
+  #       uses: actions/cache@main
+  #       with:
+  #         path: srcpkgs/packages
+  #         key: VoidPkgCache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.variant }}-${{ matrix.guest }}-${{ hashFiles('Dockerfile') }}
+  #
+  #     - name: Build NekoBox package
+  #       env:
+  #         PRIVATE_KEY: ${{ secrets.PRIV_KEY }}
+  #         XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
+  #         TARGET: ${{ matrix.target }}
+  #         XBPS_TARGET_VERSION: ${{ github.event.inputs.tag }}
+  #         GUEST_ARCH: ${{ matrix.guest }}
+  #         GUEST_VARIANT: ${{ matrix.variant }}
+  #       run: |
+  #         XBPS_TARGET_ARCH="${TARGET}"
+  #         if [[ "${GUEST_VARIANT}" == "musl" ]]
+  #         then
+  #           XBPS_TARGET_ARCH="${XBPS_TARGET_ARCH}-musl"
+  #         fi
+  #         ROOT_DIR=$PWD
+  #         (
+  #          cd download-artifact
+  #          cd *public-public ||:
+  #          tar xvzf artifacts.tgz -C .
+  #          mv deployment/*.tar.xz "$ROOT_DIR"
+  #         )
+  #         XBPS_TARGET_SOURCE="$(ls *$XBPS_TARGET_VERSION*.tar.xz)"
+  #         export GUEST_UID="$UID"
+  #         export GUEST_VARIANT
+  #         export GUEST_ARCH
+  #         declare -p XBPS_TARGET_ARCH      >> srcpkgs/.ENV
+  #         declare -p XBPS_PASSPHRASE       >> srcpkgs/.ENV
+  #         declare -p PRIVATE_KEY           >> srcpkgs/.ENV
+  #         declare -p XBPS_TARGET_SOURCE    >> srcpkgs/.ENV
+  #         declare -p XBPS_TARGET_VERSION   >> srcpkgs/.ENV
+  #         chmod -Rfv 777 srcpkgs
+  #         sudo echo 0 > /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+  #         sudo -E docker compose up
+  #         sudo chown `whoami`:`whoami` -Rfv srcpkgs/packages
+  #     - name: Linux - Publish
+  #       if: github.event.inputs.publish  == 'true'
+  #       shell: bash
+  #       env:
+  #         GH_TOKEN: ${{ github.token }}
+  #       run: |
+  #         gh release upload "$INPUT_VERSION" ./srcpkgs/packages/hostdir/binpkgs/* --clobber
+  #     # Upload build artifacts
+  #     - name: Upload artifacts
+  #       uses: actions/upload-artifact@v6
+  #       with:
+  #         name: nekobox-${{ matrix.target }}
+  #         path: srcpkgs/packages/hostdir/binpkgs/*.xbps
+  #         retention-days: 7
   upload_aur:
     name: Upload to Open Build Service and Aur
     permissions:
@@ -208,7 +294,7 @@ jobs:
     needs:
       - build-go
     runs-on: ubuntu-latest
-    if: github.event.inputs.publish == 'true' && github.event.inputs.binary_only == 'false'
+    if: github.event.inputs.publish == 'true' && github.event.inputs.binary_only == 'false' && github.event.inputs.pre_release == 'false'
     steps:
       - name: Checking out sources
         uses: actions/checkout@main
@@ -222,25 +308,10 @@ jobs:
           AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           echo copr > requirements.txt
-    #      git config --global user.email "${{ secrets.EMAIL }}"
-    #      git config --global user.name "${{ github.actor }}"
-    #      mkdir -p ~/.ssh
-    #      touch ~/.ssh/config           ||:
-    #      touch ~/.ssh/known_hosts      ||:
-    #      echo "Host aur aur.archlinux.org"     >> ~/.ssh/config
-    #      echo "  IdentityFile ~/.ssh/aur"      >> ~/.ssh/config
-    #      echo "  User aur"                     >> ~/.ssh/config
-    #      chmod -vR 600 ~/.ssh/*
-    #      ssh-keyscan -v -t "rsa,dsa,ecdsa,ed25519" aur.archlinux.org >> ~/.ssh/known_hosts
-    #      echo "$AUR_KEY" > ~/.ssh/aur
-    #      chmod -vR 600 ~/.ssh/*
-    #      ssh-keygen -vy -f ~/.ssh/aur > ~/.ssh/aur.pub
-    #      chmod -vR 600 ~/.ssh/*
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-          cache: 'pip'
 
       - name: Linux - Install apt dependencies
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -263,9 +334,12 @@ jobs:
           COPR_LOGIN: ${{ secrets.COPR_LOGIN }}
           COPR_TOKEN: ${{ secrets.COPR_TOKEN }}
           INPUT_VERSION: ${{ github.event.inputs.tag }}
+          PUBLISH_PPA: ${{ github.event.inputs.publish_ppa }}
+          PPA_SSH_KEY: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
         run: |
           export MESSAGE="$(echo -e "${MESSAGE}")"
           echo "Version is ${INPUT_VERSION}"
+          if [[ "$PUBLISH_PPA" == "true" ]]; then . ./script/trigger_personal_package_archive.sh; fi
           if [[ "$PUBLISH_AUR" == "true" ]]; then . ./script/generate_pkgbuild.sh; fi
           if [[ "$PUBLISH_OBS" == "true" ]]; then . ./script/trigger_open_build_service.sh; fi
           if [[ "$PUBLISH_COPR" == "true" ]]; then pip install copr; python3 ./script/trigger_community_projects.py; fi
@@ -298,7 +372,7 @@ jobs:
   build-cpp:
     name: Build windows binaries
     permissions:
-      contents: read
+      contents: write
     needs:
       - build-go
     strategy:
@@ -306,83 +380,83 @@ jobs:
         include:
           - platform: windows-11-arm
             target: arm64
-            qt_version: 6.11.0
+      #      qt_version: 6.12.0
             triplet: arm64-windows
             allow: ${{ github.event.inputs.build_windows_arm64 }}
-          - platform: windows-latest
+          - platform: windows-2022
             target: x86_64
-            qt_version: 6.10.0
+      #      qt_version: 6.10.0
             triplet: x64-windows
             allow: ${{ github.event.inputs.build_windows_x64 }}
-          - platform: windows-latest
+          - platform: windows-2022
             target: x86
-            qt_version: 6.10.0
+      #      qt_version: 6.10.0
             triplet: x86-windows
             allow: ${{ github.event.inputs.build_windows_x86 }}
       fail-fast: false
     runs-on: ${{ matrix.platform }}
+    if: github.event.inputs.source_only != 'true'
     env:
       ACTIONS_ALLOW_UNSECURE_COMMANDS: true
       INPUT_VERSION: ${{ github.event.inputs.tag }}
     steps:
       - name: Checking out sources
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
+        if: matrix.allow == 'true'
         uses: actions/checkout@main
         with:
           ref: 'main'
           submodules: "true"
 
       - name: Setup Ninja
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
+        if: matrix.allow == 'true'
         uses: qr243vbi/setup-ninja@master
 
       - name: Install NSIS
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true' && matrix.target != 'arm64'
+        if: matrix.allow == 'true' && matrix.target != 'arm64'
         uses: negrutiu/nsis-install@v2
         with:
           arch: ${{ matrix.target }}
 
-      - name: Install Customized Qt
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true' && matrix.target != 'arm64'
-        uses: qr243vbi/qt6windows7@main
-        with:
-          version: ${{ matrix.qt_version }}_${{ matrix.target }}
+#      - name: Install Customized Qt
+ #       if: matrix.allow == 'true' && matrix.target != 'arm64'
+  #      uses: qr243vbi/qt6windows7@main
+   #     with:
+    #      version: ${{ matrix.qt_version }}_${{ matrix.target }}
 
-      - name: Install Qt
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true' && matrix.target == 'arm64'
-        uses: jurplel/install-qt-action@v4.3.0
-        with:
-          version: ${{ matrix.qt_version }}
-          setup-python: true
-          cache: true
-          modules: qtcharts
-          cache-key-prefix: QtCache-${{ matrix.platform }}-${{ matrix.target }}
+#      - name: Install Qt
+ #       if: matrix.allow == 'true' && matrix.target == 'arm64'
+  #      uses: jurplel/install-qt-action@v4.3.1
+   #     with:
+    #      version: ${{ matrix.qt_version }}
+     #     setup-python: true
+      #    cache: true
+       #   modules: qtcharts
+        #  cache-key-prefix: QtCache-${{ matrix.platform }}-${{ matrix.target }}
 
       - name: Install MSVC compiler
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
+        if: matrix.allow == 'true'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.target }}
 
       - name: vcpkg build
         uses: qr243vbi/vcpkg-action@master
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
+        if: matrix.allow == 'true'
         id: vcpkg
         with:
-          pkgs: thrift boost-filesystem boost-dll boost-headers boost-bimap lmdb
+          pkgs: thrift boost-filesystem boost-dll boost-headers boost-bimap cpr leveldb yaml-cpp quickjs-ng qtbase qttools
           triplet: ${{ matrix.triplet }}
-          repository: qr243vbi/vcpkg
           vcpkg-subdir: ..\..\src
-          token: ${{ secrets.UPLOAD_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Download Artifacts
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
+        if: matrix.allow == 'true'
         uses: actions/download-artifact@main
         with:
           path: download-artifact
 
       - name: Download Srslist
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
+        if: matrix.allow == 'true'
         shell: bash
         run: |
           curl -fLso "srslist.json" "https://github.com/qr243vbi/ruleset/raw/refs/heads/rule-set/srslist.json"
@@ -390,21 +464,24 @@ jobs:
 
       - name: Cache Builds
         id: cache-common
-        if: github.event.inputs.source_only  != 'true' && matrix.allow == 'true'
+        if: matrix.allow == 'true'
         uses: actions/cache@main
         with:
           path: build
           key: NinjaCache-${{ matrix.platform }}-${{ matrix.target }}-${{ github.event.inputs.tag }}
 
       - name: Install Zip, Curl, Jq, UPX
+        if: matrix.allow == 'true'
         uses: ConorMacBride/install-package@v1
         with:
-          choco: zip curl jq upx
-
+          choco: zip curl jq
+          
       - name: Windows - Generate MakeFile and Build
-        if: matrix.allow == 'true' && github.event.inputs.source_only  != 'true'
+        if: matrix.allow == 'true'
         shell: bash
         run: |
+          export PATH="$(realpath "$(cygpath -u '${{ github.workspace }}/../../src/installed/${{ matrix.triplet }}/tools/Qt6/bin')"):$PATH"
+          echo $PATH
           TOOLCHAIN=`realpath '${{ github.workspace }}/../../src/scripts/buildsystems/vcpkg.cmake'`
           TOOLCHAIN="$(cygpath -w "${TOOLCHAIN}")"
           if [[ ${{ github.event.inputs.skip_updater }} == 'true' ]]; then export SKIP_UPDATE_BUTTON=ON; else export SKIP_UPDATE_BUTTON=OFF; fi
@@ -412,20 +489,29 @@ jobs:
           cmake --build build --config Release --verbose
           ./script/deploy_windows.sh "${{ matrix.target }}"
 
+      - name: Windows - Publish
+        if: github.event.inputs.publish == 'true' && matrix.allow == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$INPUT_VERSION" ./deployment/* --clobber
+          
       - name: Tar files
         shell: bash
-        if: matrix.allow == 'true' && github.event.inputs.source_only  != 'true'
+        if: matrix.allow == 'true'
         run: tar czvf artifacts.tgz ./deployment
 
       - name: Uploading Artifact
-        if: matrix.allow == 'true' && github.event.inputs.source_only  != 'true'
+        if: matrix.allow == 'true'
         uses: actions/upload-artifact@main
         with:
           name: nekobox-${{ github.sha }}-${{ matrix.platform }}-${{ matrix.target }}-Qt${{ matrix.qt_version }}
           path: artifacts.tgz
 
-  build-cpp-linux:
+  build-ubuntu:
     name: Build linux binaries
+    if: github.event.inputs.build_ubuntu == 'true' && github.event.inputs.source_only != 'true'
     permissions:
       contents: write
       actions: read
@@ -435,25 +521,25 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-24.04
+            target: 386
+            target1: i686
+            target2: i386
+            goarch: 386
+          - platform: ubuntu-24.04-arm
+            target: arm/v7
+            target1: armhf
+            target2: armhf
+            goarch: arm
+          - platform: ubuntu-24.04
             target: amd64
             target1: x86_64
             target2: x86_64
-            allow: ${{ github.event.inputs.build_ubuntu }}
+            goarch: amd64
           - platform: ubuntu-24.04-arm
             target: arm64
             target1: aarch64
             target2: aarch64
-            allow: ${{ github.event.inputs.build_ubuntu_arm }}
-          - platform: ubuntu-24.04
-            target: 386
-            target1: i686
-            target2: i386
-            allow: ${{ github.event.inputs.build_ubuntu_32 }}
-          - platform: ubuntu-24.04-arm
-            target: arm
-            target1: armhf
-            target2: armhf
-            allow: ${{ github.event.inputs.build_ubuntu_arm_32 }}
+            goarch: arm64
       fail-fast: false
     runs-on: ${{ matrix.platform }}
     env:
@@ -461,20 +547,17 @@ jobs:
       INPUT_VERSION: ${{ github.event.inputs.tag }}
     steps:
       - name: Checking out sources
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
         uses: actions/checkout@main
         with:
           ref: 'main'
           submodules: "true"
 
       - name: Download Artifacts
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
         uses: actions/download-artifact@main
         with:
           path: download-artifact
 
       - name: Download Srslist
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
         shell: bash
         run: |
           curl -fLso "srslist.json" "https://github.com/qr243vbi/ruleset/raw/refs/heads/rule-set/srslist.json"
@@ -482,7 +565,6 @@ jobs:
 
       - name: Cache Builds
         id: cache-common
-        if: github.event.inputs.source_only  != 'true' && matrix.allow == 'true'
         uses: actions/cache@main
         with:
           path: build
@@ -527,35 +609,36 @@ jobs:
           destination: appimagetool-${{ matrix.target1 }}.AppImage
 
       - name: Linux - Generate MakeFile and Build
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
         shell: bash
         env:
           GUEST_ARCH: ${{ matrix.target }}
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
         run: |
           if [[ ${{ github.event.inputs.skip_updater }} == 'true' ]]; then export SKIP_UPDATE_BUTTON=ON; else export SKIP_UPDATE_BUTTON=OFF; fi
-          echo "UNAME=${GUEST_ARCH}" >> .ENV
+          echo "UNAME=${GOARCH}" >> .ENV
+          echo "GOARCH=${GOARCH}" >> .ENV
+          echo "GOOS=${GOOS}" >> .ENV
           echo "INPUT_VERSION=${INPUT_VERSION}" >> .ENV
           echo "SKIP_UPDATE_BUTTON=${SKIP_UPDATE_BUTTON}" >> .ENV
           docker compose up --force-recreate --build
 
       - name: Linux - Publish
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true' && github.event.inputs.publish  == 'true'
+        if: github.event.inputs.publish  == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$INPUT_VERSION" ./deployment/* --clobber
 
       - name: Tar files
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
         shell: bash
         run: tar czvf artifacts.tgz ./deployment
 
       - name: Uploading Artifact
-        if: matrix.allow == 'true' && github.event.inputs.source_only != 'true'
         uses: actions/upload-artifact@main
         with:
-          name: nekobox-${{ github.sha }}-${{ matrix.platform }}-${{ matrix.target }}
+          name: nekobox-${{ github.sha }}-${{ matrix.platform }}-${{ matrix.goarch }}
           path: artifacts.tgz
   #
   # build-cpp-linux:
@@ -639,7 +722,7 @@ jobs:
   #         if [[ "${{ github.event.inputs.publish }}" == "true" ]]
   #         then
   #           export UPLOAD_WITH_GH=yes
-  #           export GH_TOKEN='${{ secrets.UPLOAD_TOKEN }}'
+  #           export GH_TOKEN='${{ github.token }}'
   #         fi
   #         bash -x ./script/deploy_linux64.sh
   #
@@ -665,7 +748,7 @@ jobs:
       actions: read
     env:
       INPUT_VERSION: ${{ github.event.inputs.tag }}
-    if: github.event.inputs.publish == 'true' && github.event.inputs.source_only != 'true'
+    if: github.event.inputs.publish == 'true' && github.event.inputs.source_only != 'true' && github.event.inputs.pre_release != 'true'
     steps:
       - name: Checking out sources
         uses: actions/checkout@main
@@ -688,27 +771,13 @@ jobs:
           EMAIL: ${{ secrets.EMAIL }}
           UPLOAD_WITH_GH: yes
           CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
-          GH_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           source script/env_deploy.sh
           find . -name artifacts.tgz | xargs -n1 tar xvzf
           ##
           cd deployment
           ####
-          if [[ -f "$version_standalone-windows64-installer.exe" ]]; then
-            gh release upload "${INPUT_VERSION}" "$version_standalone-windows64-installer.exe" --clobber
-            gh release upload "${INPUT_VERSION}" "$version_standalone-windows64.zip" --clobber
-          fi
-          ####
-          if [[ -f "$version_standalone-windows-arm64-installer.exe" ]]; then
-            gh release upload "${INPUT_VERSION}" "$version_standalone-windows-arm64-installer.exe" --clobber
-            gh release upload "${INPUT_VERSION}" "$version_standalone-windows-arm64.zip" --clobber
-          fi
-          ####
-          if [[ -f "$version_standalone-windows32-installer.exe" ]]; then
-            gh release upload "${INPUT_VERSION}" "$version_standalone-windows32-installer.exe" --clobber
-            gh release upload "${INPUT_VERSION}" "$version_standalone-windows32.zip" --clobber
-          fi
           if [[ '${{ github.event.inputs.publish_winget }}' == 'true' && -f $version_standalone-windows32.zip && -f $version_standalone-windows64.zip && -f $version_standalone-windows-arm64.zip ]]
           then
             pushd ..
