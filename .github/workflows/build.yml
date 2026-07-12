@@ -160,6 +160,7 @@ jobs:
             core/server/go.sum
       - name: Install thrift compiler on Windows
         if: matrix.cross_os == 'windows' && steps.cache-common.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
           choco install thrift
       - name: Make scripts executable
