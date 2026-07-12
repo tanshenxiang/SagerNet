@@ -104,25 +104,25 @@ jobs:
   #    max-parallel: 1
       matrix:
         include:
-          - cross_os: public
-            cross_arch: public
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: amd64
-            allow: ${{ github.event.inputs.build_ubuntu }}
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: arm64
-            allow: ${{ github.event.inputs.build_ubuntu_arm }}
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: 386
-            allow: ${{ github.event.inputs.build_ubuntu_32 }}
-            go_version: "1.25.9"
-          - cross_os: linux
-            cross_arch: arm
-            allow: ${{ github.event.inputs.build_ubuntu_arm_32 }}
-            go_version: "1.25.9"
+#          - cross_os: public
+#            cross_arch: public
+#            go_version: "1.25.9"
+#          - cross_os: linux
+#            cross_arch: amd64
+#            allow: ${{ github.event.inputs.build_ubuntu }}
+#            go_version: "1.25.9"
+#          - cross_os: linux
+#            cross_arch: arm64
+#            allow: ${{ github.event.inputs.build_ubuntu_arm }}
+#            go_version: "1.25.9"
+#          - cross_os: linux
+#            cross_arch: 386
+#            allow: ${{ github.event.inputs.build_ubuntu_32 }}
+#            go_version: "1.25.9"
+#          - cross_os: linux
+#            cross_arch: arm
+#            allow: ${{ github.event.inputs.build_ubuntu_arm_32 }}
+#            go_version: "1.25.9"
           - cross_os: windows
             cross_arch: amd64
             allow: ${{ github.event.inputs.build_windows_x64 }}
