@@ -179,19 +179,6 @@ jobs:
         shell: bash
         run: |
           env INPUT_VERSION=${{ github.event.inputs.tag }} bash -x ./script/deploy_vendor.sh
-      - name: Publish sources
-        if: matrix.cross_os == 'public' && github.event.inputs.publish == 'true' && github.event.inputs.binary_only == 'false'
-        env:
-          INPUT_VERSION: ${{ github.event.inputs.tag }}
-          MESSAGE: ${{ github.event.inputs.text }}
-          GH_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
-        run: |
-          export MESSAGE="$(echo -e "${MESSAGE}")"
-          if ! gh release view "${INPUT_VERSION}" >/dev/null 2>&1
-          then
-            gh release create "${INPUT_VERSION}" --title "${INPUT_VERSION}" --notes "${MESSAGE}"
-          fi
-          gh release upload "${INPUT_VERSION}" deployment/* --clobber
       - name: Tar files
         if: matrix.cross_os == 'public' || ( github.event.inputs.source_only  != 'true' && matrix.allow == 'true' )
         run: tar czvf artifacts.tgz ./deployment
