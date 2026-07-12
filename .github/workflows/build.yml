@@ -36,32 +36,32 @@ on:
       build_windows_arm64:
         description: "Build windows ARM64 binaries"
         type: boolean
-        default: true
+        default: false
         required: false
       build_windows_x86:
         description: "Build windows x86 binaries"
         type: boolean
-        default: true
+        default: false
         required: false
       build_ubuntu:
         description: "Build linux x64 binaries"
         type: boolean
-        default: true
+        default: false
         required: false
       build_ubuntu_arm:
         description: "Build linux ARM64 binaries"
         type: boolean
-        default: true
+        default: false
         required: false
       build_ubuntu_32:
         description: "Build linux x86 binaries"
         type: boolean
-        default: true
+        default: false
         required: false
       build_ubuntu_arm_32:
         description: "Build linux ARM binaries"
         type: boolean
-        default: true
+        default: false
         required: false
       publish_chocolatey:
         description: "Publish chocolatey packages"
