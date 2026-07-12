@@ -664,7 +664,7 @@ jobs:
       contents: write
       actions: read
     env:
-      GH\_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
       INPUT_VERSION: ${{ github.event.inputs.tag }}
     if: github.event.inputs.publish == 'true' && github.event.inputs.source_only != 'true'
     steps:
