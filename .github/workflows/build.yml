@@ -158,6 +158,10 @@ jobs:
           go-version: ${{ matrix.go_version }}
           cache-dependency-path: |
             core/server/go.sum
+      - name: Install thrift compiler on Windows
+        if: matrix.cross_os == 'windows' && steps.cache-common.outputs.cache-hit != 'true'
+        run: |
+          choco install thrift
       - name: Make scripts executable
         if: steps.cache-common.outputs.cache-hit != 'true' && matrix.cross_os != 'public' && ( github.event.inputs.source_only  != 'true' && matrix.allow == 'true' )
         run: chmod +x ./script/*.sh
